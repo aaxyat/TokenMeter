@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { formatCacheHitRate, isTokenTotals, subtractTotals, totalsOf, type SessionUsage } from '../panel/totals.ts';
+import { formatCacheHitRate, formatCost, isTokenTotals, subtractTotals, totalsOf, type SessionUsage } from '../panel/totals.ts';
 
 const usage = (over: Partial<SessionUsage> = {}): SessionUsage => ({
   cost: 0,
@@ -62,6 +62,15 @@ test('the hit rate treats input as uncached, so cache reads join the denominator
 test('cache writes count as prompt tokens too', () => {
   const withWrite = usage({ input: 0, cacheRead: 1_000, cacheWrite: 1_000 });
   assert.equal(formatCacheHitRate(withWrite), '50.0%');
+});
+
+test('cost keeps the digits a short session earns, and shows a plain zero', () => {
+  assert.equal(formatCost(0), '$0.00', 'a subscription reports 0 and still gets a figure');
+  assert.equal(formatCost(Number.NaN), '$0.00');
+  assert.equal(formatCost(0.00042), '$0.0004');
+  assert.equal(formatCost(0.0123), '$0.012');
+  assert.equal(formatCost(0.5), '$0.500');
+  assert.equal(formatCost(2.3456), '$2.35');
 });
 
 test('stored baselines are validated before use', () => {

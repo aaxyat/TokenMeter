@@ -27,9 +27,12 @@ The panel is a thin view. A small local service does the measuring.
   own usage events) beside the local estimate.
 - Adds a **Current** block below the details: input tokens, cached tokens, the
   input cache hit rate, and output tokens for the watched session.
-- **Reset to 0** under that block zeroes the displayed token counts for the
+- **Reset tokens** under that block zeroes the displayed token counts for the
   session and counts up from there. The baseline is stored per session, so it
   survives reopening the panel.
+- Shows the session's **API cost** beside the reset control, as the provider
+  reports it. A subscription reports `$0.00` and it is shown anyway; small
+  amounts keep enough decimals to stay readable.
 
 ## How it measures
 

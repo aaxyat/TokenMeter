@@ -1,6 +1,6 @@
 import { connectHost, HostRequestError } from '@openchamber/sdk';
 import { applyHostReady, mountBadge, mountBanner, mountButton, mountSeparator } from '@openchamber/sdk/ui';
-import { formatCacheHitRate, isTokenTotals, subtractTotals, totalsOf, type SessionUsage, type TokenTotals } from './totals.ts';
+import { formatCacheHitRate, formatCost, isTokenTotals, subtractTotals, totalsOf, type SessionUsage, type TokenTotals } from './totals.ts';
 
 type ConnectionState = 'idle' | 'connecting' | 'live' | 'error';
 
@@ -55,7 +55,8 @@ const COPY = {
     cachedTokens: 'Cached tokens',
     cacheHitRate: 'Input cache hit rate',
     outputTokens: 'Output tokens',
-    reset: 'Reset to 0',
+    apiCost: 'API cost',
+    reset: 'Reset tokens',
     idle: 'idle',
     generating: 'generating',
     connecting: 'connecting',
@@ -91,7 +92,8 @@ const COPY = {
     cachedTokens: '캐시 토큰',
     cacheHitRate: '입력 캐시 적중률',
     outputTokens: '출력 토큰',
-    reset: '0으로 초기화',
+    apiCost: 'API 비용',
+    reset: '토큰 초기화',
     idle: '대기',
     generating: '생성 중',
     connecting: '연결 중',
@@ -171,6 +173,7 @@ const inputTokensEl = el('div', 'tps-stat-value');
 const cachedTokensEl = el('div', 'tps-stat-value');
 const cacheHitRateEl = el('div', 'tps-stat-value');
 const outputTokensEl = el('div', 'tps-stat-value');
+const costEl = el('div', 'tps-cost-value');
 const lastTurnValueEl = el('div', 'tps-lastturn-value', '—');
 const lastTurnMetaEl = el('div', 'tps-lastturn-meta');
 
@@ -306,6 +309,7 @@ const render = (rate: RateResponse | null, notice: string | null = null): void =
   cachedTokensEl.textContent = usage ? formatCount(usage.cacheRead) : '—';
   cacheHitRateEl.textContent = usage ? formatCacheHitRate(usage) : '—';
   outputTokensEl.textContent = usage ? formatCount(usage.output) : '—';
+  costEl.textContent = usage ? formatCost(usage.cost) : '—';
   noteEl.textContent = rate?.error ? `${rate.error}` : copy.estimate;
 
   renderLastTurn(rate);
@@ -403,7 +407,11 @@ const mount = (): void => {
     size: 'sm',
     onClick: () => { void resetTotals(); },
   });
-  usageCard.append(stats, usageActions);
+  const usageFooter = el('div', 'tps-usage-footer');
+  const costBlock = el('div', 'tps-cost');
+  costBlock.append(el('span', 'tps-cost-label', copy.apiCost), costEl);
+  usageFooter.append(costBlock, usageActions);
+  usageCard.append(stats, usageFooter);
 
   const metaCard = el('section', 'tps-card');
   const list = el('dl', 'tps-details');

@@ -57,6 +57,18 @@ export const subtractTotals = (usage: SessionUsage, baseline: TokenTotals | null
   };
 };
 
+/**
+ * Cost in USD as the provider reports it. A subscription reports 0, and a short
+ * session lands far under a cent, so small values keep their digits instead of
+ * rounding to $0.00.
+ */
+export const formatCost = (cost: number): string => {
+  if (!Number.isFinite(cost) || cost <= 0) return '$0.00';
+  if (cost >= 1) return `$${cost.toFixed(2)}`;
+  if (cost >= 0.01) return `$${cost.toFixed(3)}`;
+  return `$${cost.toFixed(4)}`;
+};
+
 /** What a Reset stores: exactly the figures the panel counts up. */
 export const totalsOf = (usage: SessionUsage | null): TokenTotals => (
   usage

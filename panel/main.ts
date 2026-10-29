@@ -335,6 +335,11 @@ const poll = async (): Promise<void> => {
     const result = await host.serviceRequest({ method: 'GET', path: '/rate' });
     if (result.status < 400) {
       latestRate = JSON.parse(result.body) as RateResponse;
+      // The service was still starting when the panel mounted, so /watch never
+      // landed: a live service with no session is the cue to ask again.
+      if (latestRate.connection === 'live' && !latestRate.sessionId && context.session) {
+        void configure(context.session.id);
+      }
       render(latestRate);
     } else {
       render(latestRate, `${copy.statusId}: HTTP ${result.status}`);

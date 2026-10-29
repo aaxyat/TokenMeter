@@ -695,10 +695,13 @@ const refreshPricing = async (): Promise<void> => {
 /** What the panel shows beside the API cost: which price row was applied, and the dataset it came from. */
 const describePricing = (modelId: string | null) => {
   const record = pricing.index ? matchPrice(pricing.index, modelId) : null;
+  // Price the tokens streamed since the last settlement too, so the cost keeps
+  // pace with the figures beside it instead of jumping at each step boundary.
+  const pendingTokens = pendingChars * charsPerToken;
   const estimate = record && sessionUsage
     ? estimateCost({
       input: sessionUsage.input,
-      output: sessionUsage.output,
+      output: sessionUsage.output + pendingTokens,
       cacheRead: sessionUsage.cacheRead,
       cacheWrite: sessionUsage.cacheWrite,
     }, record)

@@ -598,9 +598,10 @@ var refreshPricing = async () => {
 };
 var describePricing = (modelId) => {
   const record = pricing.index ? matchPrice(pricing.index, modelId) : null;
+  const pendingTokens = pendingChars * charsPerToken;
   const estimate = record && sessionUsage ? estimateCost({
     input: sessionUsage.input,
-    output: sessionUsage.output,
+    output: sessionUsage.output + pendingTokens,
     cacheRead: sessionUsage.cacheRead,
     cacheWrite: sessionUsage.cacheWrite
   }, record) : null;

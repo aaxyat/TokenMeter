@@ -386,6 +386,7 @@ const poll = async (): Promise<void> => {
       // The service was still starting when the panel mounted, so /watch never
       // landed: a live service with no session is the cue to ask again.
       if (latestRate.connection === 'live' && !latestRate.sessionId && context.session) {
+        configuredKey = '';
         void configure(context.session.id);
       }
       render(latestRate);

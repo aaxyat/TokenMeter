@@ -12,6 +12,7 @@ import { cacheHitShare, formatCacheHitRate, hitRateColor, liveTotals, type Sessi
 
 type RateResponse = {
   connection: 'idle' | 'connecting' | 'live' | 'error';
+  sessionId: string | null;
   tokensPerSecond: number;
   charsPerToken: number;
   pendingChars: number;
@@ -127,7 +128,12 @@ const poll = async (): Promise<void> => {
     const result = await host.serviceRequest({ method: 'GET', path: '/rate' });
     if (result.status < 400) {
       const rate = JSON.parse(result.body) as RateResponse;
-      if (rate.connection === 'live' && !rate.sessionUsage) await configure();
+      // A service that restarted has forgotten the watch; its own view of the
+      // session id is the cue to ask again.
+      if (rate.connection === 'live' && !rate.sessionId) {
+        configuredKey = '';
+        await configure();
+      }
       render(rate);
     }
   } catch {

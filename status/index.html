@@ -27,6 +27,34 @@
         height: 100%;
       }
 
+      /* The Session panel can be narrow; a cramped row truncated the figures, so
+         below this width the rate takes its own line and the stats share the next. */
+      @media (max-width: 470px) {
+        .tm-status {
+          flex-direction: column;
+          align-items: stretch;
+          justify-content: center;
+          gap: 6px;
+        }
+
+        .tm-stats {
+          justify-content: space-between;
+          gap: 10px;
+        }
+
+        .tm-num {
+          font-size: 1.375rem;
+        }
+
+        .tm-value {
+          font-size: 0.8125rem;
+        }
+
+        .tm-label {
+          font-size: 0.625rem;
+        }
+      }
+
       .tm-rate {
         display: flex;
         align-items: baseline;

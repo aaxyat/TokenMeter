@@ -281,7 +281,9 @@ const render = (rate: RateResponse | null, notice: string | null = null): void =
 
   renderLastTurn(rate);
 
-  if (notice) setNotice(notice);
+  // Sync, not just set: a banner raised while the service was still starting
+  // must clear once a poll succeeds, or it sticks until the panel reloads.
+  setNotice(notice);
 };
 
 let latestRate: RateResponse | null = null;

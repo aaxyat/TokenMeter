@@ -25,6 +25,8 @@ The panel is a thin view. A small local service does the measuring.
   live number and the completed result do not overwrite each other.
 - Shows the session's **real token total** (generated tokens, from OpenCode's
   own usage events) beside the local estimate.
+- Adds a **Current** block below the details: input tokens, cached tokens, the
+  input cache hit rate, and output tokens for the watched session.
 
 ## How it measures
 
@@ -63,7 +65,10 @@ The counter itself:
   clamped to `0.05 .. 1`.
 - `session.usage.updated` reports the session's running totals (cost and
   input/output/reasoning/cache tokens). The panel shows generated tokens
-  (`output + reasoning`) from it.
+  (`output + reasoning`) from it, and a **Current** block with input, cached
+  and output tokens. `input` counts uncached prompt tokens only, so the cache
+  hit rate divides cache reads by the whole prompt:
+  `cacheRead / (input + cacheRead + cacheWrite)`.
 
 The rolling tokens-per-second is `charsPerSecond × charsPerToken`. It is an
 estimate of generation throughput, because the live stream only carries text

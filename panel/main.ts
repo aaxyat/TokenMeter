@@ -60,6 +60,11 @@ const COPY = {
     charsPerSecond: 'Characters/s',
     charsPerToken: 'Chars per token',
     sessionTokens: 'Session tokens',
+    currentHeading: 'Current',
+    inputTokens: 'Input tokens',
+    cachedTokens: 'Cached tokens',
+    cacheHitRate: 'Input cache hit rate',
+    outputTokens: 'Output tokens',
     idle: 'idle',
     generating: 'generating',
     connecting: 'connecting',
@@ -90,6 +95,11 @@ const COPY = {
     charsPerSecond: '초당 문자 수',
     charsPerToken: '문자당 토큰',
     sessionTokens: '세션 토큰',
+    currentHeading: '현재',
+    inputTokens: '입력 토큰',
+    cachedTokens: '캐시 토큰',
+    cacheHitRate: '입력 캐시 적중률',
+    outputTokens: '출력 토큰',
     idle: '대기',
     generating: '생성 중',
     connecting: '연결 중',
@@ -165,6 +175,10 @@ const sessionTokensEl = el('dd', 'tps-detail-value');
 const connectionEl = el('dd', 'tps-detail-value');
 const lastEventEl = el('dd', 'tps-detail-value');
 const eventsEl = el('dd', 'tps-detail-value');
+const inputTokensEl = el('dd', 'tps-detail-value');
+const cachedTokensEl = el('dd', 'tps-detail-value');
+const cacheHitRateEl = el('dd', 'tps-detail-value');
+const outputTokensEl = el('dd', 'tps-detail-value');
 const lastTurnValueEl = el('div', 'tps-lastturn-value', '—');
 const lastTurnMetaEl = el('div', 'tps-lastturn-meta');
 
@@ -212,6 +226,14 @@ const formatCount = (value: number): string => Math.round(value).toLocaleString(
 
 const formatSeconds = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;
 
+/** Share of the prompt the provider served from its cache. `input` counts uncached prompt tokens only, so the cache reads are added back in. */
+const formatCacheHitRate = (usage: SessionUsage): string => {
+  const prompt = usage.input + usage.cacheRead + usage.cacheWrite;
+  if (prompt <= 0) return '—';
+  const share = Math.min(1, Math.max(0, usage.cacheRead / prompt));
+  return `${(share * 100).toFixed(1)}%`;
+};
+
 const renderLastTurn = (rate: RateResponse | null): void => {
   const turn = rate?.lastTurn ?? null;
   if (turn) {
@@ -250,6 +272,11 @@ const render = (rate: RateResponse | null, notice: string | null = null): void =
   connectionEl.textContent = rate ? rate.connection : '—';
   lastEventEl.textContent = rate ? formatAge(rate.lastEventAt) : '—';
   eventsEl.textContent = rate ? formatCount(rate.eventsSeen) : '—';
+  const usage = rate?.sessionUsage ?? null;
+  inputTokensEl.textContent = usage ? formatCount(usage.input) : '—';
+  cachedTokensEl.textContent = usage ? formatCount(usage.cacheRead) : '—';
+  cacheHitRateEl.textContent = usage ? formatCacheHitRate(usage) : '—';
+  outputTokensEl.textContent = usage ? formatCount(usage.output) : '—';
   noteEl.textContent = rate?.error ? `${rate.error}` : copy.estimate;
 
   renderLastTurn(rate);
@@ -345,7 +372,19 @@ const mount = (): void => {
   details.append(footer);
   mountSeparator(details, {});
 
-  container.append(noticeRoot, card, lastTurnCard, details);
+  const currentCard = el('section', 'tps-card');
+  const currentLabel = el('div', 'tps-block-label', copy.currentHeading);
+  const currentList = el('dl', 'tps-details');
+  const currentRow = (label: string, value: HTMLElement) => {
+    currentList.append(el('dt', 'tps-detail-label', label), value);
+  };
+  currentRow(copy.inputTokens, inputTokensEl);
+  currentRow(copy.cachedTokens, cachedTokensEl);
+  currentRow(copy.cacheHitRate, cacheHitRateEl);
+  currentRow(copy.outputTokens, outputTokensEl);
+  currentCard.append(currentLabel, currentList);
+
+  container.append(noticeRoot, card, lastTurnCard, details, currentCard);
   root.append(container);
 
   badge = mountBadge(badgeSlot, { label: copy.connecting, tone: 'neutral' });

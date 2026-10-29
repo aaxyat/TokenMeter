@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { formatCacheHitRate, formatCost, isTokenTotals, subtractTotals, totalsOf, type SessionUsage } from '../panel/totals.ts';
+import { cacheHitShare, formatCacheHitRate, formatCost, hitRateColor, isTokenTotals, subtractTotals, totalsOf, type SessionUsage } from '../panel/totals.ts';
 
 const usage = (over: Partial<SessionUsage> = {}): SessionUsage => ({
   cost: 0,
@@ -62,6 +62,16 @@ test('the hit rate treats input as uncached, so cache reads join the denominator
 test('cache writes count as prompt tokens too', () => {
   const withWrite = usage({ input: 0, cacheRead: 1_000, cacheWrite: 1_000 });
   assert.equal(formatCacheHitRate(withWrite), '50.0%');
+});
+
+test('the hit rate reads red at nothing cached and green at everything cached', () => {
+  assert.equal(cacheHitShare(usage({ input: 1_000, cacheRead: 9_000 })), 0.9);
+  assert.equal(cacheHitShare(usage({ input: 0, cacheRead: 0, cacheWrite: 0 })), null);
+  assert.equal(hitRateColor(0), 'oklch(0.68 0.16 25)');
+  assert.equal(hitRateColor(1), 'oklch(0.68 0.16 150)');
+  assert.equal(hitRateColor(0.5), 'oklch(0.68 0.16 88)');
+  assert.equal(hitRateColor(-3), 'oklch(0.68 0.16 25)', 'clamped low');
+  assert.equal(hitRateColor(4), 'oklch(0.68 0.16 150)', 'clamped high');
 });
 
 test('cost keeps the digits a short session earns, and shows a plain zero', () => {

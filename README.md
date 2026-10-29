@@ -26,7 +26,9 @@ The panel is a thin view. A small local service does the measuring.
 - Shows the session's **real token total** (generated tokens, from OpenCode's
   own usage events) beside the local estimate.
 - Adds a **Current** block below the details: input tokens, cached tokens, the
-  input cache hit rate, and output tokens for the watched session.
+  input cache hit rate, and output tokens for the watched session. The hit rate
+  is coloured on a red → amber → green ramp, so a session that is re-reading its
+  cache looks different at a glance from one that is paying for every token.
 - **Reset tokens** under that block zeroes the displayed token counts for the
   session and counts up from there. The baseline is stored per session, so it
   survives reopening the panel.

@@ -1,6 +1,6 @@
 import { connectHost, HostRequestError } from '@openchamber/sdk';
 import { applyHostReady, mountBadge, mountBanner, mountButton, mountSeparator } from '@openchamber/sdk/ui';
-import { formatCacheHitRate, formatCost, isTokenTotals, subtractTotals, totalsOf, type SessionUsage, type TokenTotals } from './totals.ts';
+import { cacheHitShare, formatCacheHitRate, formatCost, hitRateColor, isTokenTotals, subtractTotals, totalsOf, type SessionUsage, type TokenTotals } from './totals.ts';
 
 type ConnectionState = 'idle' | 'connecting' | 'live' | 'error';
 
@@ -307,7 +307,9 @@ const render = (rate: RateResponse | null, notice: string | null = null): void =
   eventsEl.textContent = rate ? formatCount(rate.eventsSeen) : '—';
   inputTokensEl.textContent = usage ? formatCount(usage.input) : '—';
   cachedTokensEl.textContent = usage ? formatCount(usage.cacheRead) : '—';
+  const hitShare = usage ? cacheHitShare(usage) : null;
   cacheHitRateEl.textContent = usage ? formatCacheHitRate(usage) : '—';
+  cacheHitRateEl.style.color = hitShare === null ? '' : hitRateColor(hitShare);
   outputTokensEl.textContent = usage ? formatCount(usage.output) : '—';
   costEl.textContent = usage ? formatCost(usage.cost) : '—';
   noteEl.textContent = rate?.error ? `${rate.error}` : copy.estimate;
@@ -388,16 +390,15 @@ const mount = (): void => {
   const usageCard = el('section', 'tps-card');
   usageCard.append(el('div', 'tps-block-label', copy.currentHeading));
   const stats = el('div', 'tps-stats');
-  const stat = (label: string, value: HTMLElement, emphasis = false) => {
+  const stat = (label: string, value: HTMLElement) => {
     const box = el('div', 'tps-stat');
-    if (emphasis) box.dataset.emphasis = 'true';
     box.append(el('div', 'tps-stat-label', label), value);
     return box;
   };
   stats.append(
     stat(copy.inputTokens, inputTokensEl),
     stat(copy.cachedTokens, cachedTokensEl),
-    stat(copy.cacheHitRate, cacheHitRateEl, true),
+    stat(copy.cacheHitRate, cacheHitRateEl),
     stat(copy.outputTokens, outputTokensEl),
   );
   const usageActions = el('div', 'tps-usage-actions');

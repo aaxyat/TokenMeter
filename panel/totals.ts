@@ -25,11 +25,24 @@ export const isTokenTotals = (value: unknown): value is TokenTotals => {
  * Share of the prompt the provider served from its cache. `input` counts
  * uncached prompt tokens only, so the cache reads are added back in.
  */
-export const formatCacheHitRate = (usage: TokenTotals): string => {
+export const cacheHitShare = (usage: TokenTotals): number | null => {
   const prompt = usage.input + usage.cacheRead + usage.cacheWrite;
-  if (prompt <= 0) return '—';
-  const share = Math.min(1, Math.max(0, usage.cacheRead / prompt));
-  return `${(share * 100).toFixed(1)}%`;
+  if (prompt <= 0) return null;
+  return Math.min(1, Math.max(0, usage.cacheRead / prompt));
+};
+
+export const formatCacheHitRate = (usage: TokenTotals): string => {
+  const share = cacheHitShare(usage);
+  return share === null ? '—' : `${(share * 100).toFixed(1)}%`;
+};
+
+/**
+ * Red at 0% through amber to green at 100%. oklch keeps one lightness across
+ * the ramp, so the colour reads the same on the light and the dark theme.
+ */
+export const hitRateColor = (share: number): string => {
+  const clamped = Math.min(1, Math.max(0, share));
+  return `oklch(0.68 0.16 ${Math.round(25 + clamped * 125)})`;
 };
 
 /**

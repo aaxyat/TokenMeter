@@ -94,6 +94,24 @@ var busy = false;
 var charsPerToken = DEFAULT_CHARS_PER_TOKEN;
 var sessionUsage = null;
 var pendingChars = 0;
+var SESSION_MEMORY_LIMIT = 32;
+var sessionMemory = new Map;
+var memoryFor = (sessionId) => {
+  const existing = sessionMemory.get(sessionId);
+  if (existing)
+    return existing;
+  const created = { usage: null, pendingChars: 0, lastTurn: null };
+  sessionMemory.set(sessionId, created);
+  if (sessionMemory.size > SESSION_MEMORY_LIMIT) {
+    for (const key of sessionMemory.keys()) {
+      if (key === sessionId)
+        continue;
+      sessionMemory.delete(key);
+      break;
+    }
+  }
+  return created;
+};
 var controller = null;
 var retryTimer = null;
 var retryDelay = RETRY_BASE_MS;
@@ -151,6 +169,8 @@ var finalizeTurn = (now) => {
     pausedMs: Math.max(0, wallMs - activeMs),
     endedAt: now
   };
+  if (watch?.sessionId)
+    memoryFor(watch.sessionId).lastTurn = lastTurn;
   clearTurn();
 };
 var pruneSamples = (now) => {
@@ -170,6 +190,8 @@ var recordChars = (messageID, partID, chars, now) => {
   partChars.set(partID, (partChars.get(partID) ?? 0) + chars);
   messageChars.set(messageID, (messageChars.get(messageID) ?? 0) + chars);
   pendingChars += chars;
+  if (watch?.sessionId)
+    memoryFor(watch.sessionId).pendingChars += chars;
   lastEventAt = now;
   if (turnStartedAt === null) {
     turnStartedAt = now;
@@ -282,6 +304,11 @@ var handleEvent = (event, now) => {
       generated: output + reasoning
     };
     pendingChars = 0;
+    if (watch?.sessionId) {
+      const remembered = memoryFor(watch.sessionId);
+      remembered.usage = sessionUsage;
+      remembered.pendingChars = 0;
+    }
     lastEventAt = now;
     return;
   }
@@ -515,6 +542,12 @@ var applyWatch = (next) => {
   if (!changed)
     return false;
   resetMeasurement();
+  const remembered = next.sessionId ? memoryFor(next.sessionId) : null;
+  if (remembered) {
+    sessionUsage = remembered.usage;
+    pendingChars = remembered.pendingChars;
+    lastTurn = remembered.lastTurn;
+  }
   retryDelay = RETRY_BASE_MS;
   stopStream();
   startStream();

@@ -133,6 +133,35 @@ let charsPerToken = DEFAULT_CHARS_PER_TOKEN;
 let sessionUsage: SessionUsage | null = null;
 /** Characters streamed since the last `session.usage.updated`, shown as live tokens. */
 let pendingChars = 0;
+
+/**
+ * What the service remembers about a session after you switch away from it.
+ * Without this, every tab switch looked like a fresh session and the meter fell
+ * back to nothing until the provider settled another step.
+ */
+type SessionMemory = {
+  usage: SessionUsage | null;
+  pendingChars: number;
+  lastTurn: TurnResult | null;
+};
+
+const SESSION_MEMORY_LIMIT = 32;
+const sessionMemory = new Map<string, SessionMemory>();
+
+const memoryFor = (sessionId: string): SessionMemory => {
+  const existing = sessionMemory.get(sessionId);
+  if (existing) return existing;
+  const created: SessionMemory = { usage: null, pendingChars: 0, lastTurn: null };
+  sessionMemory.set(sessionId, created);
+  if (sessionMemory.size > SESSION_MEMORY_LIMIT) {
+    for (const key of sessionMemory.keys()) {
+      if (key === sessionId) continue;
+      sessionMemory.delete(key);
+      break;
+    }
+  }
+  return created;
+};
 let controller: AbortController | null = null;
 let retryTimer: NodeJS.Timeout | null = null;
 let retryDelay = RETRY_BASE_MS;
@@ -207,6 +236,7 @@ const finalizeTurn = (now: number): void => {
     pausedMs: Math.max(0, wallMs - activeMs),
     endedAt: now,
   };
+  if (watch?.sessionId) memoryFor(watch.sessionId).lastTurn = lastTurn;
   clearTurn();
 };
 
@@ -225,6 +255,7 @@ const recordChars = (messageID: string, partID: string, chars: number, now: numb
   partChars.set(partID, (partChars.get(partID) ?? 0) + chars);
   messageChars.set(messageID, (messageChars.get(messageID) ?? 0) + chars);
   pendingChars += chars;
+  if (watch?.sessionId) memoryFor(watch.sessionId).pendingChars += chars;
   lastEventAt = now;
 
   if (turnStartedAt === null) {
@@ -368,6 +399,11 @@ const handleEvent = (event: RawEvent, now: number): void => {
     };
     // The provider's count now covers everything streamed so far.
     pendingChars = 0;
+    if (watch?.sessionId) {
+      const remembered = memoryFor(watch.sessionId);
+      remembered.usage = sessionUsage;
+      remembered.pendingChars = 0;
+    }
     lastEventAt = now;
     return;
   }
@@ -605,6 +641,14 @@ const applyWatch = (next: WatchConfig): boolean => {
   watch = next;
   if (!changed) return false;
   resetMeasurement();
+  // Put back what this session last showed, so switching chats and coming back
+  // does not blank the meter until the provider settles another step.
+  const remembered = next.sessionId ? memoryFor(next.sessionId) : null;
+  if (remembered) {
+    sessionUsage = remembered.usage;
+    pendingChars = remembered.pendingChars;
+    lastTurn = remembered.lastTurn;
+  }
   retryDelay = RETRY_BASE_MS;
   stopStream();
   void startStream();

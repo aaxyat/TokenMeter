@@ -202,6 +202,23 @@ try {
   const switched = await call('/rate');
   assert(switched.body.lastTurn === null, 'watching a new session should clear the last turn');
   assert(switched.body.sessionUsage === null, 'watching a new session should clear the session totals');
+
+  // Going back to the first session restores what it last showed, instead of
+  // blanking it until the provider settles another step.
+  await call('/watch', {
+    method: 'POST',
+    body: JSON.stringify({ origin: `http://127.0.0.1:${MOCK_PORT}`, sessionId: SESSION }),
+  });
+  const restored = await call('/rate');
+  assert(
+    restored.body.sessionUsage?.generated === 260,
+    `expected the first session's totals back, got ${JSON.stringify(restored.body.sessionUsage)}`,
+  );
+  assert(restored.body.lastTurn?.tokens === 160, 'expected the first session\'s last turn back');
+  await call('/watch', {
+    method: 'POST',
+    body: JSON.stringify({ origin: `http://127.0.0.1:${MOCK_PORT}`, sessionId: secondSession }),
+  });
   await wait(300);
   emit('session.execution.started', { sessionID: secondSession });
   emit('session.text.ended', { sessionID: secondSession, assistantMessageID: 'msg_2', ordinal: 0, text: 'a'.repeat(250) });

@@ -1,10 +1,10 @@
 {
   "name": "openchamber-tps",
-  "version": "1.8.2",
+  "version": "1.8.3",
   "private": true,
   "type": "module",
   "license": "MIT",
-  "description": "OpenChamber extension panel that shows the rolling generation rate plus live token usage for the open session.",
+  "description": "OpenChamber extension: live generation rate, token totals, cache hit rate and API cost for the open session — in a rail panel and the Session panel.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/airtaxi/openchamber-tps.git"
@@ -12,7 +12,7 @@
   "openchamber": {
     "apiVersion": 1,
     "engines": {
-      "openchamber": ">=2.0.0"
+      "openchamber": ">=2.2.0"
     },
     "contributes": {
       "panel": {

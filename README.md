@@ -1,69 +1,119 @@
-# OpenChamber Token Meter
+# Token Meter
 
-An OpenChamber extension that shows the generation rate of the open session:
-a rolling **last-5-seconds** tokens-per-second readout, plus characters per
-second, the current chars-per-token estimate, and the session's real token
-totals — input, cached, cache hit rate and output.
+An OpenChamber extension that measures how fast the open session generates and
+what it has spent: a rolling **tokens-per-second** readout, the session's live
+token totals, its cache behaviour, and the API cost.
 
-The panel is a thin view. A small local service does the measuring.
+Everything is read from OpenChamber's own event stream. The panel is a thin
+view; a small local service does the measuring.
 
-## Requirements
+| | |
+| --- | --- |
+| **Rail panel** | full readout: rate, last turn, token grid, cost, session details |
+| **Session panel row** | compact row beside Context and Usage: rate, input, cache hit, output |
+| **Engine** | OpenChamber **2.2.0+** (OpenCode 2 event stream) |
+| **Permissions** | a local service. Nothing else — no files, no prompts, no sessions |
+| **Money** | [AICostBudget pricing dataset](https://github.com/aicostbudget/ai-api-pricing-data) (CC BY 4.0) |
 
-- OpenChamber **2.0.0** or newer (OpenCode 2.0.15+). The extension reads the
-  OpenCode 2 event stream; the 1.0.x releases were the last ones for
-  OpenChamber 1.x, where that stream had different event names.
-- Extensions load on OpenChamber web and desktop only. VS Code and the mobile
-  app do not load them.
+## Install
 
-## What it does
+Settings → Extensions → **Folder, ZIP, or URL**, paste the repository URL, and
+choose **Add**. Approve the permissions dialog: it asks for **Run a local
+service**, which is what the meter needs.
 
-- Opens as a rail panel next to the built-in panels.
-- Follows the open chat. Switch sessions and it rewires to the new one.
-- Shows a large `tok/s` value, a bar that tracks the recent peak, and the
-  session title with its live status (`generating` / `idle`).
-- After a turn finishes, shows **that turn's final average** separately, so the
-  live number and the completed result do not overwrite each other.
-- Shows the session's **real token total** (generated tokens, from OpenCode's
-  own usage events) beside the local estimate.
-- Adds a **Current** block below the details: input tokens, cached tokens, the
-  input cache hit rate, and output tokens for the watched session. The hit rate
-  is coloured on a red → amber → green ramp, so a session that is re-reading its
-  cache looks different at a glance from one that is paying for every token.
-- **Reset tokens** under that block zeroes the displayed token counts for the
-  session and counts up from there. The baseline is stored per session, so it
-  survives reopening the panel.
-- Shows the session's **API cost** beside the reset control. When OpenCode
-  reports a real cost it is shown as-is; when it reports `0` — a subscription,
-  or a provider with no price table — the service prices the session itself
-  from the [AICostBudget pricing dataset](#pricing) and marks the figure `est.`.
-  Small amounts keep enough decimals to stay readable.
+```
+https://github.com/aaxyat/openchamber-tps
+```
+
+A Git install updates itself: bump `version` in `package.json`, rebuild, and
+push; OpenChamber offers the update the next time Settings → Extensions opens.
+Add `#v1.8.0` or `#main` to pin a tag or branch. To work on the extension
+itself, install the absolute path of your checkout instead — a folder install
+runs straight from that folder and never updates on its own.
+
+Extensions load on OpenChamber web and desktop only; VS Code and the mobile app
+do not load them.
+
+> **After an update, reopen the panel.** OpenChamber does not reload a panel's
+> iframe when the extension underneath it changes, so an open panel keeps
+> running the previous build. Close it and open it again (or restart
+> OpenChamber) to pick up new code.
+
+## What the panel shows
+
+**The rate.** A large `tok/s` number over the last five seconds, a bar that
+tracks the recent peak, the session title, and whether the session is
+`generating`, `idle`, `waiting for permission` or `waiting for answer`.
+
+**Last turn average.** When a turn finishes, its average is shown separately, so
+the live number and the completed result never overwrite each other. The figure
+is tokens divided by *generation* time only — tool calls, retries and time spent
+waiting on you are excluded (see [Turn average](#turn-average)).
+
+**Current.** The session's real totals, from OpenCode's own usage events:
+
+| | |
+| --- | --- |
+| Input tokens | prompt tokens the provider did not serve from cache |
+| Cached tokens | prompt tokens it did serve from cache |
+| Input cache hit rate | cache reads over the whole prompt, coloured red → amber → green |
+| Output tokens | tokens generated, growing live while the model writes |
+
+**Reset tokens** records the current totals as a baseline and counts up from
+zero. The baseline is stored per session in host storage, so it survives closing
+the panel; if the counters ever go backwards the baseline is dropped rather than
+pinning the display at zero.
+
+**API cost** is the provider's own figure when it reports one. When it reports
+`0` — a subscription, or a provider with no price table — the service prices the
+session itself from the pricing dataset and marks the number `est.`.
+
+**Details.** Characters/s, chars per token, session tokens, model, status, last
+event, events seen, and the pricing dataset's build date.
 
 ## Pricing
 
-Token counts come from OpenCode; money comes from
-[aicostbudget/ai-api-pricing-data](https://github.com/aicostbudget/ai-api-pricing-data)
-(CC BY 4.0), which publishes the whole dataset as one file at
+Token counts come from OpenCode. Money comes from
+[aicostbudget/ai-api-pricing-data](https://github.com/aicostbudget/ai-api-pricing-data),
+which publishes the whole dataset as one file:
 `https://aicostbudget.github.io/ai-api-pricing-data/api/v1/prices.json`.
 
-- The service fetches that file when it starts and every 6 hours after, keeping
-  the last good copy if a refresh fails and retrying in 20 minutes.
-- A session's model id is matched to a record by exact id, by the id after an
-  aggregator prefix (`ocg/deepseek-v4.1-flash`), then by the record's display
-  name ignoring case and punctuation — which is how OpenCode's
-  `deepseek-v4.1-flash` reaches the dataset's `deepseek-flash` (display name
-  *DeepSeek V4.1 Flash*).
+- Fetched when the service starts, then every 6 hours. A failed refresh keeps
+  the last good copy and retries in 20 minutes, so a stale price beats no price.
+- A session's model id is matched to a record by exact id, then by the id after
+  an aggregator prefix (`ocg/deepseek-v4.1-flash` → `deepseek-v4.1-flash`), then
+  by the record's display name ignoring case and punctuation — which is how
+  OpenCode's `deepseek-v4.1-flash` reaches the dataset's `deepseek-flash`
+  (*DeepSeek V4.1 Flash*).
 - Cost is `(input × input + cached × cached_input + cache_write × cache_write +
-  output × output) / 1M`. A bucket the dataset leaves `null` contributes nothing
-  and the estimate is reported as a floor rather than a guess.
-- The panel's **Prices** row shows the dataset build date, so a stale copy is
-  visible rather than silent.
+  output × output) / 1M`, in USD per million tokens. A bucket the dataset leaves
+  `null` contributes nothing and the estimate is reported as a floor, never as a
+  guess.
+- The **Prices** row shows the dataset's build date, so a stale copy is visible
+  rather than silent.
+
+These are the provider's *list* prices. A subscription or a reseller may bill
+differently.
+
+## The Session panel row
+
+The extension contributes a `statusSection`, so the same numbers appear in the
+Session panel beside Context and Usage — without opening the rail panel:
+
+```
+9.5 tok/s      Input 435.0k   Cache hit 99.3%   Output ~70.0k
+```
+
+Figures are compact for the narrow panel; each cell's tooltip carries the exact
+count. Below 470 px the rate takes its own line and the three figures share the
+next.
 
 ## How it measures
 
 ```
-panel (sandboxed iframe)
-  │  POST /watch { origin, sessionId }   ← the origin comes from location.href
-  │  GET  /rate                          ← polled every 250 ms
+panel / session row (sandboxed iframes)
+  │  POST /watch { origin, sessionId, model }   ← origin comes from location.href
+  │  GET  /rate                                 ← polled every 150 ms
   ▼
 host loopback proxy  ──►  service process (127.0.0.1)
                               │  GET <origin>/api/global/event   (Server-Sent Events)
@@ -71,135 +121,103 @@ host loopback proxy  ──►  service process (127.0.0.1)
                          OpenChamber event stream
 ```
 
-The service subscribes to `GET /api/global/event`, the same global event stream
-OpenChamber's own hub reads, and counts streamed output characters for the
-watched session inside a five-second window. Two details of that stream matter:
+Two properties of that stream matter:
 
-- It forwards OpenCode 2 wire events (`{ id, created, type, data }`). A proxy
-  that wraps them as `{ payload, directory, eventId }` is unwrapped too.
+- It forwards OpenCode 2 wire events (`{ id, created, type, data }`). A proxy that
+  wraps them as `{ payload, directory, eventId }` is unwrapped too.
 - `/api/event` is the directory-scoped sibling: without a `directory` parameter
   it carries only the server's default directory, so an open project never sees
   its own session events there. That is why the global stream is used.
 
-The counter itself:
+**Characters → tokens.** `session.text.delta` and `session.reasoning.delta` are
+the primary source; `session.tool.input.delta` carries tool input, not
+generation, and is ignored. `session.text.ended` / `session.reasoning.ended`
+full-value boundaries are the fallback for a service that attached after the
+deltas went by — a part is counted by exactly one of the two paths.
 
-- `session.text.delta` and `session.reasoning.delta` are the primary source.
-  `session.tool.input.delta` carries tool input, not generation, and is
-  ignored.
-- `session.text.ended` and `session.reasoning.ended` full-value boundaries are
-  the fallback for a service that attached after the deltas went by. A part is
-  counted by exactly one of the two paths.
-- Each settled step (`session.step.ended`, or `session.step.failed` with
-  counts) reports the provider's real `tokens.output + tokens.reasoning`. Those
-  recalibrate chars-per-token, smoothed with an exponential moving average and
-  clamped to `0.05 .. 1`.
-- `session.usage.updated` reports the session's running totals (cost and
-  input/output/reasoning/cache tokens). The panel shows generated tokens
-  (`output + reasoning`) from it, and a **Current** block with input, cached
-  and output tokens. `input` counts uncached prompt tokens only, so the cache
-  hit rate divides cache reads by the whole prompt:
-  `cacheRead / (input + cacheRead + cacheWrite)`.
+**Live totals.** Characters streamed since the last settlement are converted
+with the calibrated chars-per-token and added to the output and session figures,
+so they move while the model writes. A `~` marks that part; the next
+`session.usage.updated` replaces it with the provider's own count, so the number
+never doubles up.
 
-The rolling tokens-per-second is `charsPerSecond × charsPerToken`. It is an
-estimate of generation throughput, because the live stream only carries text
-fragments; real token counts arrive per settled step, not per character. The
-finished-turn average and the session total use the real counts.
+**The rate** is `charsPerSecond × charsPerToken`. It is an estimate of
+generation throughput, because the live stream carries text fragments only; real
+token counts arrive per settled step. Each settled step (`session.step.ended`,
+or `session.step.failed` with counts) reports `tokens.output + tokens.reasoning`
+and recalibrates chars-per-token, smoothed with an exponential moving average and
+clamped to `0.05 .. 1`.
 
-## Turn average
+### Turn average
 
 A turn spans `session.execution.started` until `session.execution.succeeded` or
-`session.execution.failed`. A `session.execution.interrupted` with reason
-`shutdown` keeps the turn open, because OpenCode resumes the same turn after a
-restart; every other interruption ends it. Its average divides tokens by
-generation time only:
+`session.execution.failed`. An interruption with reason `shutdown` keeps the turn
+open, because OpenCode resumes the same turn after a restart; every other
+interruption ends it. Its average divides tokens by generation time only:
 
-- Time between consecutive streamed characters counts as generation, up to a
-  1-second threshold. A longer gap is a pause and is excluded, which covers tool
-  execution and retries.
-- A pending permission or question excludes the wait outright, even when the
-  user answers within that threshold. OpenCode keeps the session `busy` while an
-  agent waits for the user, so `waiting-permission` and `waiting-question` are
-  detected from `permission.*` and `form.*` events (`form.*` is the OpenCode 2
-  shape of the question tool), and the panel shows `waiting for permission` /
-  `waiting for answer` instead of `generating`.
+- Time between consecutive streamed characters counts as generation up to a
+  1-second threshold. A longer gap is a pause — tool execution, a retry — and is
+  excluded.
+- A pending permission or question excludes the wait outright, even when you
+  answer within that threshold. OpenCode keeps the session `busy` while an agent
+  waits, so `permission.*` and `form.*` events are what the panel reports as
+  `waiting for permission` / `waiting for answer`.
 - Time to the first token is excluded when the first character arrives more than
   a second after the turn started.
 
-When the turn ends the service reports:
+The turn reports `tokens`, `activeMs`, `wallMs`, `pausedMs` and `tokensPerSecond`,
+with `source: tokens` when real counts existed and `estimate` otherwise. The panel
+shows the active time and adds `paused` once a turn excluded at least a second.
 
-- `tokens`: the sum of `output + reasoning` across the turn's settled steps,
-  adjusted per assistant message id so a retried step counts once.
-- `activeMs`: accumulated generation time.
-- `wallMs`: first counted character to last counted character.
-- `pausedMs`: `wallMs - activeMs`, what the average left out.
-- `tokensPerSecond`: `tokens / activeMs`.
-- `source`: `tokens` when real counts existed, otherwise `estimate` from
-  characters times the calibrated ratio. The panel labels the estimated case.
-
-The panel shows the active time, and adds `paused` once a turn has excluded at
-least a second. Switching the watched session clears the stored turn and the
-session totals.
-
-## Build
+## Development
 
 ```bash
-bun install
-bun run build      # panel/main.js (IIFE) + service/main.js (ESM)
+npm install                 # or bun install
+bun run build               # all three bundles
+bun run build:panel         # panel/main.js   (IIFE)
+bun run build:status        # status/main.js  (IIFE, the Session row)
+bun run build:service       # service/main.js (Node ESM)
 ```
 
-`bun run build:panel` and `bun run build:service` build one side each. Both use
-`openchamber-guest-bundle` from `@openchamber/sdk`. Commit the built files:
-OpenChamber never compiles an extension at install time.
-
-## Install
-
-Settings → Extensions → **Folder, ZIP, or URL**, paste
-`https://github.com/airtaxi/openchamber-tps`, and choose **Add**. Approve the
-permissions dialog: it includes **Run a local service**, which is what the meter
-needs.
-
-A Git install can update itself. Bump `version` in `package.json`, rebuild, and
-push; OpenChamber offers the update the next time Settings → Extensions is
-opened. Add `#v1.0.0` or `#main` to the URL to pin a tag or branch. On
-OpenChamber 1.x the install is refused: pin `#v1.0.1`, the last release for that
-line.
-
-To work on the extension itself, add the absolute path of your checkout
-instead. A folder install runs straight from that folder and never updates on
-its own.
-
-## Test
+All three use `openchamber-guest-bundle` from `@openchamber/sdk`. **Commit the
+built files** — OpenChamber never compiles an extension at install time. Build
+with the SDK version in `bun.lock` so the minified bundles stay close to what was
+reviewed.
 
 ```bash
-node scripts/smoke.mjs
+node --test tests/*.test.ts   # unit tests: token math, reset baselines, pricing
+node scripts/smoke.mjs        # end-to-end: mock stream + built service
 ```
 
-The smoke test starts a mock OpenChamber event stream and the built service,
-feeds synthetic OpenCode 2 events, and asserts the counted characters, the
-rolling rate, the calibration, the real token counts (per step and per
-session), the finished-turn average, the wait accounting, and the session
-filtering. It covers the delta path, the full-value `*ended` fallback path,
-`session.execution.*` status, the `shutdown` interruption, and the state cleared
-when the watched session changes.
+`tests/` covers the pure parts — live token counting, reset baselines, cache hit
+rate, cost formatting, and the dataset's id matching. `scripts/smoke.mjs` starts a
+mock OpenChamber event stream and the built service, then asserts the counted
+characters, rolling rate, calibration, per-step and per-session token counts, the
+finished-turn average, wait accounting, and session filtering.
 
 ## Limitations
 
-- **OpenChamber UI password.** The service subscribes to `/api/global/event`
-  without a session. If the instance is protected with a UI password, the stream
-  answers `401` and the panel shows a reconnect notice instead of a rate.
+- **OpenChamber UI password.** The service reads `/api/global/event` without a
+  session. With an instance UI password the stream answers `401` and the panel
+  shows a reconnect notice instead of a rate.
 - **Relay frames.** Under the private relay the panel runs from `srcDoc` with no
-  usable origin, so the meter cannot discover the event stream and says so.
-- **Managed OpenCode auth.** OpenChamber starts its managed OpenCode server with
-  a generated password the service process never receives, which is why the
-  service reads OpenChamber's own `/api/global/event` proxy rather than OpenCode
-  directly. This is also why an instance-level UI password blocks it.
-- **No per-token streaming.** Deltas carry characters only. The rolling number
-  stays a calibrated character estimate; real counts arrive per settled step
-  (`session.step.ended`) and per session (`session.usage.updated`).
-- **Reasoning counts as output.** Reasoning text is generated text, so deltas
-  from reasoning parts are counted. That matches `tokens.output + reasoning`
-  used for calibration, but it is not the same as visible answer characters.
+  usable origin, so it cannot find the event stream and says so.
+- **Managed OpenCode auth.** OpenChamber starts its managed OpenCode server with a
+  generated password the service never receives. That is why the service reads
+  OpenChamber's own proxy rather than OpenCode directly — and why a UI password
+  blocks it.
+- **Input and cached tokens step, output ticks.** The provider reports prompt
+  tokens once per settled step; there is nothing to interpolate them from.
+- **No per-token streaming.** Deltas carry characters. The rolling number is a
+  calibrated estimate; real counts arrive per settled step.
+- **Reasoning counts as output.** Reasoning text is generated text, so its deltas
+  are counted. That matches `tokens.output + reasoning`, but it is not the same as
+  visible answer characters.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). The pricing data is
+[CC BY 4.0](https://github.com/aicostbudget/ai-api-pricing-data/blob/main/LICENSE-DATA)
+and belongs to AICostBudget.
+
+Forked from [airtaxi/openchamber-tps](https://github.com/airtaxi/openchamber-tps).

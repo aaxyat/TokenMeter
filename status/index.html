@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Token Meter</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+
+      body {
+        padding: 10px 14px;
+        box-sizing: border-box;
+        background: transparent;
+        color: var(--oc-fg);
+        font-family: var(--oc-font);
+      }
+
+      .tm-status {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        height: 100%;
+      }
+
+      .tm-rate {
+        display: flex;
+        align-items: baseline;
+        gap: 5px;
+        min-width: 0;
+      }
+
+      .tm-num {
+        font-size: 1.75rem;
+        line-height: 1;
+        font-weight: 600;
+        letter-spacing: -0.03em;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .tm-unit {
+        color: var(--oc-muted);
+        font-size: 0.75rem;
+      }
+
+      .tm-stats {
+        display: flex;
+        align-items: stretch;
+        gap: 18px;
+        min-width: 0;
+      }
+
+      .tm-stat {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .tm-label {
+        color: var(--oc-muted);
+        font-size: 0.6875rem;
+        line-height: 1.1;
+        white-space: nowrap;
+      }
+
+      .tm-value {
+        font-size: 0.9375rem;
+        font-weight: 600;
+        line-height: 1.2;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .tm-value[data-empty='true'] {
+        color: var(--oc-muted);
+        font-weight: 500;
+      }
+
+      .tm-hint {
+        margin: 0;
+        color: var(--oc-muted);
+        font-size: 0.75rem;
+        line-height: 1.35;
+      }
+
+      .tm-hint:empty {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="main.js"></script>
+  </body>
+</html>

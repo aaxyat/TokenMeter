@@ -131,6 +131,8 @@ let lastEventType: string | null = null;
 let busy = false;
 let charsPerToken = DEFAULT_CHARS_PER_TOKEN;
 let sessionUsage: SessionUsage | null = null;
+/** Characters streamed since the last `session.usage.updated`, shown as live tokens. */
+let pendingChars = 0;
 let controller: AbortController | null = null;
 let retryTimer: NodeJS.Timeout | null = null;
 let retryDelay = RETRY_BASE_MS;
@@ -177,6 +179,7 @@ const resetMeasurement = (): void => {
   lastEventAt = 0;
   busy = false;
   sessionUsage = null;
+  pendingChars = 0;
   clearTurn();
   pendingPermissions.clear();
   pendingQuestions.clear();
@@ -221,6 +224,7 @@ const recordChars = (messageID: string, partID: string, chars: number, now: numb
   if (samples.length > SAMPLE_LIMIT) samples.splice(0, samples.length - SAMPLE_LIMIT);
   partChars.set(partID, (partChars.get(partID) ?? 0) + chars);
   messageChars.set(messageID, (messageChars.get(messageID) ?? 0) + chars);
+  pendingChars += chars;
   lastEventAt = now;
 
   if (turnStartedAt === null) {
@@ -362,6 +366,8 @@ const handleEvent = (event: RawEvent, now: number): void => {
       cacheWrite: readNumber(cache?.write),
       generated: output + reasoning,
     };
+    // The provider's count now covers everything streamed so far.
+    pendingChars = 0;
     lastEventAt = now;
     return;
   }
@@ -759,6 +765,7 @@ const server = http.createServer((req, res) => {
       tokensPerSecond: rate.tokensPerSecond,
       charsPerToken,
       sessionUsage,
+      pendingChars,
       pricing: describePricing(watch?.model ?? null),
       lastTurn,
       eventsSeen,

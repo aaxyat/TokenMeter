@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { cacheHitShare, formatCacheHitRate, formatCost, hitRateColor, isTokenTotals, subtractTotals, totalsOf, type SessionUsage } from '../panel/totals.ts';
+import { cacheHitShare, formatCacheHitRate, formatCost, hitRateColor, isTokenTotals, liveTotals, subtractTotals, totalsOf, type SessionUsage } from '../panel/totals.ts';
 
 const usage = (over: Partial<SessionUsage> = {}): SessionUsage => ({
   cost: 0,
@@ -72,6 +72,35 @@ test('the hit rate reads red at nothing cached and green at everything cached', 
   assert.equal(hitRateColor(0.5), 'oklch(0.68 0.16 88)');
   assert.equal(hitRateColor(-3), 'oklch(0.68 0.16 25)', 'clamped low');
   assert.equal(hitRateColor(4), 'oklch(0.68 0.16 150)', 'clamped high');
+});
+
+test('streamed characters move the token figures before the provider settles', () => {
+  const settled = usage({ output: 1_000, generated: 1_200 });
+  const live = liveTotals(settled, 4_000, 0.25);
+  assert.equal(live.output, 2_000, '4000 chars × 0.25 tokens per char');
+  assert.equal(live.generated, 2_200);
+  assert.equal(live.provisional, true);
+});
+
+test('with nothing pending the figures are the settled counts', () => {
+  const settled = usage({ output: 1_000, generated: 1_200 });
+  const live = liveTotals(settled, 0, 0.25);
+  assert.equal(live.output, 1_000);
+  assert.equal(live.provisional, false);
+});
+
+test('a live count can stand alone before any settlement arrives', () => {
+  const live = liveTotals(null, 800, 0.5);
+  assert.equal(live.output, 400);
+  assert.equal(live.generated, 400);
+  assert.equal(live.provisional, true);
+  assert.equal(liveTotals(null, 0, 0.5).provisional, false);
+});
+
+test('nonsense counts cannot push the figure backwards', () => {
+  const live = liveTotals(usage({ output: 10, generated: 10 }), Number.NaN, Number.NaN);
+  assert.equal(live.output, 10);
+  assert.equal(liveTotals(usage({ output: 10, generated: 10 }), -5, 0.25).output, 10);
 });
 
 test('cost keeps the digits a short session earns, and shows a plain zero', () => {

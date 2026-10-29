@@ -1,6 +1,6 @@
 import { connectHost, HostRequestError } from '@openchamber/sdk';
 import { applyHostReady, mountBadge, mountBanner, mountButton, mountSeparator } from '@openchamber/sdk/ui';
-import { cacheHitShare, formatCacheHitRate, formatCost, hitRateColor, isTokenTotals, subtractTotals, totalsOf, type SessionUsage, type TokenTotals } from './totals.ts';
+import { cacheHitShare, formatCacheHitRate, formatCost, hitRateColor, isTokenTotals, liveTotals, subtractTotals, totalsOf, type SessionUsage, type TokenTotals } from './totals.ts';
 
 type ConnectionState = 'idle' | 'connecting' | 'live' | 'error';
 
@@ -41,6 +41,8 @@ type RateResponse = {
   charsPerSecond: number;
   tokensPerSecond: number;
   charsPerToken: number;
+  /** Characters streamed since the provider last settled a count. */
+  pendingChars: number;
   sessionUsage: SessionUsage | null;
   pricing: PricingInfo;
   lastTurn: TurnResult | null;
@@ -328,7 +330,12 @@ const render = (rate: RateResponse | null, notice: string | null = null): void =
   charsEl.textContent = rate ? `${rate.charsPerSecond.toFixed(1)}` : '—';
   ratioEl.textContent = rate ? rate.charsPerToken.toFixed(3) : '—';
   const usage = rate?.sessionUsage ? adjustedUsage(rate.sessionUsage) : null;
-  sessionTokensEl.textContent = usage ? formatCount(usage.generated) : '—';
+  // Characters streamed since the last settlement, so the token figures move
+  // while the model writes. A "~" marks the part the provider has not counted yet.
+  const live = liveTotals(usage, rate?.pendingChars ?? 0, rate?.charsPerToken ?? 0);
+  const liveMark = live.provisional ? '~' : '';
+  const showTokens = usage !== null || live.provisional;
+  sessionTokensEl.textContent = showTokens ? `${liveMark}${formatCount(live.generated)}` : '—';
   connectionEl.textContent = rate ? rate.connection : '—';
   lastEventEl.textContent = rate ? formatAge(rate.lastEventAt) : '—';
   eventsEl.textContent = rate ? formatCount(rate.eventsSeen) : '—';
@@ -337,7 +344,7 @@ const render = (rate: RateResponse | null, notice: string | null = null): void =
   const hitShare = usage ? cacheHitShare(usage) : null;
   cacheHitRateEl.textContent = usage ? formatCacheHitRate(usage) : '—';
   cacheHitRateEl.style.color = hitShare === null ? '' : hitRateColor(hitShare);
-  outputTokensEl.textContent = usage ? formatCount(usage.output) : '—';
+  outputTokensEl.textContent = showTokens ? `${liveMark}${formatCount(live.output)}` : '—';
   // The provider's own figure wins when it has one; otherwise the dataset's
   // list price for the session's tokens is shown, marked as an estimate.
   const pricing = rate?.pricing ?? null;
@@ -499,7 +506,7 @@ const mount = (): void => {
 
   const loop = () => {
     if (stopped) return;
-    const delay = document.hidden ? 1000 : 250;
+    const delay = document.hidden ? 1000 : 150;
     window.setTimeout(async () => {
       await poll();
       loop();

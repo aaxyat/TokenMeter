@@ -93,6 +93,7 @@ var lastEventType = null;
 var busy = false;
 var charsPerToken = DEFAULT_CHARS_PER_TOKEN;
 var sessionUsage = null;
+var pendingChars = 0;
 var controller = null;
 var retryTimer = null;
 var retryDelay = RETRY_BASE_MS;
@@ -125,6 +126,7 @@ var resetMeasurement = () => {
   lastEventAt = 0;
   busy = false;
   sessionUsage = null;
+  pendingChars = 0;
   clearTurn();
   pendingPermissions.clear();
   pendingQuestions.clear();
@@ -167,6 +169,7 @@ var recordChars = (messageID, partID, chars, now) => {
     samples.splice(0, samples.length - SAMPLE_LIMIT);
   partChars.set(partID, (partChars.get(partID) ?? 0) + chars);
   messageChars.set(messageID, (messageChars.get(messageID) ?? 0) + chars);
+  pendingChars += chars;
   lastEventAt = now;
   if (turnStartedAt === null) {
     turnStartedAt = now;
@@ -278,6 +281,7 @@ var handleEvent = (event, now) => {
       cacheWrite: readNumber(cache?.write),
       generated: output + reasoning
     };
+    pendingChars = 0;
     lastEventAt = now;
     return;
   }
@@ -655,6 +659,7 @@ var server = http.createServer((req, res) => {
       tokensPerSecond: rate.tokensPerSecond,
       charsPerToken,
       sessionUsage,
+      pendingChars,
       pricing: describePricing(watch?.model ?? null),
       lastTurn,
       eventsSeen,

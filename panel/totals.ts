@@ -94,3 +94,23 @@ export const totalsOf = (usage: SessionUsage | null): TokenTotals => (
     }
     : { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, generated: 0 }
 );
+
+/**
+ * Tokens from characters streamed since the last settlement, so the figure
+ * moves while the model is still writing. The next `session.usage.updated`
+ * replaces it with the provider's own count.
+ */
+export const liveTotals = (
+  usage: SessionUsage | null,
+  pendingChars: number,
+  charsPerToken: number,
+): { output: number; generated: number; provisional: boolean } => {
+  const chars = Number.isFinite(pendingChars) ? Math.max(0, pendingChars) : 0;
+  const ratio = Number.isFinite(charsPerToken) ? Math.max(0, charsPerToken) : 0;
+  const extra = chars * ratio;
+  return {
+    output: (usage?.output ?? 0) + extra,
+    generated: (usage?.generated ?? 0) + extra,
+    provisional: extra >= 1,
+  };
+};

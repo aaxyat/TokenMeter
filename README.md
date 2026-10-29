@@ -32,9 +32,31 @@ The panel is a thin view. A small local service does the measuring.
 - **Reset tokens** under that block zeroes the displayed token counts for the
   session and counts up from there. The baseline is stored per session, so it
   survives reopening the panel.
-- Shows the session's **API cost** beside the reset control, as the provider
-  reports it. A subscription reports `$0.00` and it is shown anyway; small
-  amounts keep enough decimals to stay readable.
+- Shows the session's **API cost** beside the reset control. When OpenCode
+  reports a real cost it is shown as-is; when it reports `0` — a subscription,
+  or a provider with no price table — the service prices the session itself
+  from the [AICostBudget pricing dataset](#pricing) and marks the figure `est.`.
+  Small amounts keep enough decimals to stay readable.
+
+## Pricing
+
+Token counts come from OpenCode; money comes from
+[aicostbudget/ai-api-pricing-data](https://github.com/aicostbudget/ai-api-pricing-data)
+(CC BY 4.0), which publishes the whole dataset as one file at
+`https://aicostbudget.github.io/ai-api-pricing-data/api/v1/prices.json`.
+
+- The service fetches that file when it starts and every 6 hours after, keeping
+  the last good copy if a refresh fails and retrying in 20 minutes.
+- A session's model id is matched to a record by exact id, by the id after an
+  aggregator prefix (`ocg/deepseek-v4.1-flash`), then by the record's display
+  name ignoring case and punctuation — which is how OpenCode's
+  `deepseek-v4.1-flash` reaches the dataset's `deepseek-flash` (display name
+  *DeepSeek V4.1 Flash*).
+- Cost is `(input × input + cached × cached_input + cache_write × cache_write +
+  output × output) / 1M`. A bucket the dataset leaves `null` contributes nothing
+  and the estimate is reported as a floor rather than a guess.
+- The panel's **Prices** row shows the dataset build date, so a stale copy is
+  visible rather than silent.
 
 ## How it measures
 

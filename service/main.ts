@@ -17,6 +17,8 @@
 // dials this process directly.
 import http from 'node:http';
 
+import { buildPriceIndex, estimateCost, matchPrice, type PriceIndex, type PricingRecord } from '../shared/pricing.ts';
+
 const port = Number(process.env.OPENCHAMBER_SERVICE_PORT);
 const token = process.env.OPENCHAMBER_SERVICE_TOKEN ?? '';
 if (!Number.isInteger(port) || port <= 0 || !token) {
@@ -48,6 +50,25 @@ const MIN_CALIBRATION_CHARS = 40;
  */
 const MAX_STREAM_GAP_MS = 1_000;
 
+/**
+ * The pricing dataset's published static API. One file holds every model, so a
+ * refresh is a single request; the panel prices the session from this copy.
+ */
+const PRICING_URL = 'https://aicostbudget.github.io/ai-api-pricing-data/api/v1/prices.json';
+const PRICING_REFRESH_MS = 6 * 60 * 60 * 1000;
+const PRICING_RETRY_MS = 20 * 60 * 1000;
+const PRICING_TIMEOUT_MS = 20_000;
+
+type PricingState = {
+  status: 'loading' | 'ready' | 'error';
+  index: PriceIndex | null;
+  fetchedAt: number | null;
+  /** `generated_at` of the dataset build, not when this process fetched it. */
+  generatedAt: string | null;
+  version: string | null;
+  error: string | null;
+};
+
 type ConnectionState = 'idle' | 'connecting' | 'live' | 'error';
 
 type Sample = { at: number; chars: number };
@@ -55,6 +76,8 @@ type Sample = { at: number; chars: number };
 type WatchConfig = {
   origin: string;
   sessionId: string | null;
+  /** The model the session runs, so the service can price its tokens. */
+  model: string | null;
 };
 
 /** The finished turn's average rate, shown after the session goes idle. */
@@ -613,6 +636,82 @@ const readJsonBody = (req: http.IncomingMessage): Promise<unknown> => new Promis
   req.on('error', reject);
 });
 
+let pricing: PricingState = {
+  status: 'loading',
+  index: null,
+  fetchedAt: null,
+  generatedAt: null,
+  version: null,
+  error: null,
+};
+let pricingTimer: NodeJS.Timeout | null = null;
+
+const schedulePricingRefresh = (delay: number): void => {
+  if (pricingTimer) clearTimeout(pricingTimer);
+  pricingTimer = setTimeout(() => { void refreshPricing(); }, delay);
+  pricingTimer.unref();
+};
+
+/** Refresh keeps the last good copy on a failed fetch: a stale price beats none. */
+const refreshPricing = async (): Promise<void> => {
+  try {
+    const response = await fetch(PRICING_URL, {
+      signal: AbortSignal.timeout(PRICING_TIMEOUT_MS),
+      headers: { accept: 'application/json' },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const body = await response.json() as {
+      dataset_version?: unknown;
+      generated_at?: unknown;
+      models?: unknown;
+    };
+    const models = Array.isArray(body.models) ? body.models as PricingRecord[] : [];
+    if (models.length === 0) throw new Error('the dataset listed no models');
+    pricing = {
+      status: 'ready',
+      index: buildPriceIndex(models),
+      fetchedAt: Date.now(),
+      generatedAt: typeof body.generated_at === 'string' ? body.generated_at : null,
+      version: typeof body.dataset_version === 'string' ? body.dataset_version : null,
+      error: null,
+    };
+    schedulePricingRefresh(PRICING_REFRESH_MS);
+  } catch (error) {
+    pricing = {
+      ...pricing,
+      status: pricing.index ? 'ready' : 'error',
+      error: error instanceof Error ? error.message : String(error),
+    };
+    schedulePricingRefresh(PRICING_RETRY_MS);
+  }
+};
+
+/** What the panel shows beside the API cost: which price row was applied, and the dataset it came from. */
+const describePricing = (modelId: string | null) => {
+  const record = pricing.index ? matchPrice(pricing.index, modelId) : null;
+  const estimate = record && sessionUsage
+    ? estimateCost({
+      input: sessionUsage.input,
+      output: sessionUsage.output,
+      cacheRead: sessionUsage.cacheRead,
+      cacheWrite: sessionUsage.cacheWrite,
+    }, record)
+    : null;
+  return {
+    status: pricing.status,
+    error: pricing.error,
+    version: pricing.version,
+    generatedAt: pricing.generatedAt,
+    fetchedAt: pricing.fetchedAt,
+    model: modelId,
+    matched: record
+      ? { id: record.model_id, provider: record.provider_id, name: record.display_name }
+      : null,
+    cost: estimate ? estimate.cost : null,
+    partial: estimate ? estimate.partial : false,
+  };
+};
+
 const server = http.createServer((req, res) => {
   if (req.headers.authorization !== `Bearer ${token}`) {
     json(res, 401, { error: 'unauthorized' });
@@ -628,15 +727,16 @@ const server = http.createServer((req, res) => {
 
   if (url.pathname === '/watch' && req.method === 'POST') {
     void readJsonBody(req).then((raw) => {
-      const body = (raw && typeof raw === 'object' ? raw : {}) as { origin?: unknown; sessionId?: unknown };
+      const body = (raw && typeof raw === 'object' ? raw : {}) as { origin?: unknown; sessionId?: unknown; model?: unknown };
       const origin = readString(body.origin);
       if (!isHttpOrigin(origin)) {
         json(res, 400, { error: 'origin must be an http(s) origin from the OpenChamber server' });
         return;
       }
       const sessionId = typeof body.sessionId === 'string' && body.sessionId.trim() ? body.sessionId : null;
-      const changed = applyWatch({ origin, sessionId });
-      json(res, 200, { ok: true, changed, connection, sessionId });
+      const model = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : null;
+      const changed = applyWatch({ origin, sessionId, model });
+      json(res, 200, { ok: true, changed, connection, sessionId, model });
     }).catch((error: unknown) => {
       json(res, 400, { error: error instanceof Error ? error.message : 'Invalid request' });
     });
@@ -659,6 +759,7 @@ const server = http.createServer((req, res) => {
       tokensPerSecond: rate.tokensPerSecond,
       charsPerToken,
       sessionUsage,
+      pricing: describePricing(watch?.model ?? null),
       lastTurn,
       eventsSeen,
       lastEventType,
@@ -671,9 +772,11 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(port, '127.0.0.1');
+void refreshPricing();
 
 const shutdown = (): void => {
   stopStream();
+  if (pricingTimer) clearTimeout(pricingTimer);
   server.close(() => process.exit(0));
 };
 process.on('SIGTERM', shutdown);

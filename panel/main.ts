@@ -15,6 +15,19 @@ type TurnResult = {
   endedAt: number;
 };
 
+/** Pricing the service resolved from its refreshed copy of the AICostBudget dataset. */
+type PricingInfo = {
+  status: 'loading' | 'ready' | 'error';
+  error: string | null;
+  version: string | null;
+  generatedAt: string | null;
+  fetchedAt: number | null;
+  model: string | null;
+  matched: { id: string; provider: string; name: string } | null;
+  cost: number | null;
+  partial: boolean;
+};
+
 /** What the service reports on `GET /rate`. */
 type RateResponse = {
   connection: ConnectionState;
@@ -29,6 +42,7 @@ type RateResponse = {
   tokensPerSecond: number;
   charsPerToken: number;
   sessionUsage: SessionUsage | null;
+  pricing: PricingInfo;
   lastTurn: TurnResult | null;
   eventsSeen: number;
   lastEventType: string | null;
@@ -38,7 +52,7 @@ type RateResponse = {
 type HostContext = {
   locale: string;
   directory: string | null;
-  session: { id: string; title: string; busy: boolean } | null;
+  session: { id: string; title: string; busy: boolean; model: string | null } | null;
 };
 
 const COPY = {
@@ -56,6 +70,10 @@ const COPY = {
     cacheHitRate: 'Input cache hit rate',
     outputTokens: 'Output tokens',
     apiCost: 'API cost',
+    estimated: 'est.',
+    pricingLoading: 'loading…',
+    model: 'Model',
+    prices: 'Prices',
     reset: 'Reset tokens',
     idle: 'idle',
     generating: 'generating',
@@ -93,6 +111,10 @@ const COPY = {
     cacheHitRate: '입력 캐시 적중률',
     outputTokens: '출력 토큰',
     apiCost: 'API 비용',
+    estimated: '추정',
+    pricingLoading: '불러오는 중',
+    model: '모델',
+    prices: '가격 기준',
     reset: '토큰 초기화',
     idle: '대기',
     generating: '생성 중',
@@ -174,6 +196,11 @@ const cachedTokensEl = el('div', 'tps-stat-value');
 const cacheHitRateEl = el('div', 'tps-stat-value');
 const outputTokensEl = el('div', 'tps-stat-value');
 const costEl = el('div', 'tps-cost-value');
+const costEstEl = el('span', 'tps-cost-est');
+const costBlockEl = el('div', 'tps-cost');
+const costLabelEl = el('span', 'tps-cost-label');
+const modelEl = el('dd', 'tps-detail-value');
+const pricesEl = el('dd', 'tps-detail-value');
 const lastTurnValueEl = el('div', 'tps-lastturn-value', '—');
 const lastTurnMetaEl = el('div', 'tps-lastturn-meta');
 
@@ -311,7 +338,21 @@ const render = (rate: RateResponse | null, notice: string | null = null): void =
   cacheHitRateEl.textContent = usage ? formatCacheHitRate(usage) : '—';
   cacheHitRateEl.style.color = hitShare === null ? '' : hitRateColor(hitShare);
   outputTokensEl.textContent = usage ? formatCount(usage.output) : '—';
-  costEl.textContent = usage ? formatCost(usage.cost) : '—';
+  // The provider's own figure wins when it has one; otherwise the dataset's
+  // list price for the session's tokens is shown, marked as an estimate.
+  const pricing = rate?.pricing ?? null;
+  const providerCost = usage && usage.cost > 0 ? usage.cost : null;
+  const estimatedCost = providerCost === null ? pricing?.cost ?? null : null;
+  const shownCost = providerCost ?? estimatedCost;
+  costEl.textContent = shownCost === null ? '—' : formatCost(shownCost);
+  costEstEl.textContent = estimatedCost === null ? '' : copy.estimated;
+  costBlockEl.title = pricing?.matched
+    ? `${pricing.matched.name} · ${pricing.matched.provider} · dataset ${pricing.generatedAt?.slice(0, 10) ?? '—'}`
+    : pricing?.error ?? '';
+  modelEl.textContent = pricing?.matched?.name ?? pricing?.model ?? '—';
+  pricesEl.textContent = pricing?.generatedAt
+    ? pricing.generatedAt.slice(0, 10)
+    : pricing?.status === 'loading' ? copy.pricingLoading : '—';
   noteEl.textContent = rate?.error ? `${rate.error}` : copy.estimate;
 
   renderLastTurn(rate);
@@ -357,13 +398,14 @@ const configure = async (sessionId: string | null): Promise<void> => {
     render(null, copy.noOrigin);
     return;
   }
-  const key = `${origin}|${sessionId ?? ''}`;
+  const model = context.session?.model ?? null;
+  const key = `${origin}|${sessionId ?? ''}|${model ?? ''}`;
   if (key === configuredKey) return;
   try {
     await host.serviceRequest({
       method: 'POST',
       path: '/watch',
-      body: JSON.stringify({ origin, sessionId }),
+      body: JSON.stringify({ origin, sessionId, model }),
     });
     configuredKey = key;
   } catch (error) {
@@ -414,8 +456,9 @@ const mount = (): void => {
     onClick: () => { void resetTotals(); },
   });
   const usageFooter = el('div', 'tps-usage-footer');
-  const costBlock = el('div', 'tps-cost');
-  costBlock.append(el('span', 'tps-cost-label', copy.apiCost), costEl);
+  const costBlock = costBlockEl;
+  costLabelEl.textContent = copy.apiCost;
+  costBlock.append(costLabelEl, costEl, costEstEl);
   usageFooter.append(costBlock, usageActions);
   usageCard.append(stats, usageFooter);
 
@@ -427,9 +470,11 @@ const mount = (): void => {
   row(copy.charsPerSecond, charsEl);
   row(copy.charsPerToken, ratioEl);
   row(copy.sessionTokens, sessionTokensEl);
+  row(copy.model, modelEl);
   row(copy.statusId, connectionEl);
   row(copy.lastEvent, lastEventEl);
   row(copy.events, eventsEl);
+  row(copy.prices, pricesEl);
   metaCard.append(list);
   mountSeparator(metaCard, {});
 
@@ -469,7 +514,9 @@ host.onReady((next) => {
   context = {
     locale: next.locale,
     directory: next.directory,
-    session: next.session ? { id: next.session.id, title: next.session.title, busy: next.session.busy } : null,
+    session: next.session
+      ? { id: next.session.id, title: next.session.title, busy: next.session.busy, model: next.session.model ?? null }
+      : null,
   };
   origin = resolveOrigin();
   if (!mounted) {
@@ -482,6 +529,11 @@ host.onReady((next) => {
 });
 
 host.onSession((session) => {
-  context = { ...context, session };
+  context = {
+    ...context,
+    session: session
+      ? { id: session.id, title: session.title, busy: session.busy, model: session.model ?? null }
+      : null,
+  };
   void configure(session?.id ?? null);
 });

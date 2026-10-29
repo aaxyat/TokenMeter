@@ -1,5 +1,64 @@
 // service/main.ts
 import http from "node:http";
+
+// shared/pricing.ts
+var normalizeModelKey = (value) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+var buildPriceIndex = (models) => {
+  const byKey = new Map;
+  const byName = new Map;
+  for (const record of models) {
+    if (!record?.pricing || record.pricing.unit !== undefined && record.pricing.unit !== "1M tokens")
+      continue;
+    byKey.set(record.model_id, record);
+    byKey.set(`${record.provider_id}/${record.model_id}`, record);
+    byKey.set(normalizeModelKey(record.model_id), record);
+    if (record.display_name)
+      byName.set(normalizeModelKey(record.display_name), record);
+  }
+  return { byKey, byName };
+};
+var modelKeyCandidates = (modelId) => {
+  const trimmed = modelId.trim();
+  if (!trimmed)
+    return [];
+  const candidates = [trimmed];
+  const slash = trimmed.lastIndexOf("/");
+  if (slash > 0 && slash < trimmed.length - 1)
+    candidates.push(trimmed.slice(slash + 1));
+  return candidates;
+};
+var matchPrice = (index, modelId) => {
+  if (!modelId)
+    return null;
+  for (const candidate of modelKeyCandidates(modelId)) {
+    const direct = index.byKey.get(candidate) ?? index.byKey.get(normalizeModelKey(candidate));
+    if (direct)
+      return direct;
+    const named = index.byName.get(normalizeModelKey(candidate));
+    if (named)
+      return named;
+  }
+  return null;
+};
+var estimateCost = (usage, record) => {
+  const row = record.pricing;
+  if (row.input === null || row.output === null)
+    return null;
+  let partial = false;
+  const bill = (tokens, rate) => {
+    if (tokens <= 0)
+      return 0;
+    if (rate === null) {
+      partial = true;
+      return 0;
+    }
+    return tokens * rate / 1e6;
+  };
+  const cost = bill(usage.input, row.input) + bill(usage.output, row.output) + bill(usage.cacheRead, row.cached_input) + bill(usage.cacheWrite, row.cache_write);
+  return { cost, partial };
+};
+
+// service/main.ts
 var port = Number(process.env.OPENCHAMBER_SERVICE_PORT);
 var token = process.env.OPENCHAMBER_SERVICE_TOKEN ?? "";
 if (!Number.isInteger(port) || port <= 0 || !token) {
@@ -16,6 +75,10 @@ var MAX_CHARS_PER_TOKEN = 1;
 var CALIBRATION_WEIGHT = 0.3;
 var MIN_CALIBRATION_CHARS = 40;
 var MAX_STREAM_GAP_MS = 1000;
+var PRICING_URL = "https://aicostbudget.github.io/ai-api-pricing-data/api/v1/prices.json";
+var PRICING_REFRESH_MS = 6 * 60 * 60 * 1000;
+var PRICING_RETRY_MS = 20 * 60 * 1000;
+var PRICING_TIMEOUT_MS = 20000;
 var samples = [];
 var partChars = new Map;
 var deltaParts = new Set;
@@ -482,6 +545,73 @@ var readJsonBody = (req) => new Promise((resolve, reject) => {
   });
   req.on("error", reject);
 });
+var pricing = {
+  status: "loading",
+  index: null,
+  fetchedAt: null,
+  generatedAt: null,
+  version: null,
+  error: null
+};
+var pricingTimer = null;
+var schedulePricingRefresh = (delay) => {
+  if (pricingTimer)
+    clearTimeout(pricingTimer);
+  pricingTimer = setTimeout(() => {
+    refreshPricing();
+  }, delay);
+  pricingTimer.unref();
+};
+var refreshPricing = async () => {
+  try {
+    const response = await fetch(PRICING_URL, {
+      signal: AbortSignal.timeout(PRICING_TIMEOUT_MS),
+      headers: { accept: "application/json" }
+    });
+    if (!response.ok)
+      throw new Error(`HTTP ${response.status}`);
+    const body = await response.json();
+    const models = Array.isArray(body.models) ? body.models : [];
+    if (models.length === 0)
+      throw new Error("the dataset listed no models");
+    pricing = {
+      status: "ready",
+      index: buildPriceIndex(models),
+      fetchedAt: Date.now(),
+      generatedAt: typeof body.generated_at === "string" ? body.generated_at : null,
+      version: typeof body.dataset_version === "string" ? body.dataset_version : null,
+      error: null
+    };
+    schedulePricingRefresh(PRICING_REFRESH_MS);
+  } catch (error) {
+    pricing = {
+      ...pricing,
+      status: pricing.index ? "ready" : "error",
+      error: error instanceof Error ? error.message : String(error)
+    };
+    schedulePricingRefresh(PRICING_RETRY_MS);
+  }
+};
+var describePricing = (modelId) => {
+  const record = pricing.index ? matchPrice(pricing.index, modelId) : null;
+  const estimate = record && sessionUsage ? estimateCost({
+    input: sessionUsage.input,
+    output: sessionUsage.output,
+    cacheRead: sessionUsage.cacheRead,
+    cacheWrite: sessionUsage.cacheWrite
+  }, record) : null;
+  return {
+    status: pricing.status,
+    error: pricing.error,
+    version: pricing.version,
+    generatedAt: pricing.generatedAt,
+    fetchedAt: pricing.fetchedAt,
+    model: modelId,
+    matched: record ? { id: record.model_id, provider: record.provider_id, name: record.display_name } : null,
+    cost: estimate ? estimate.cost : null,
+    partial: estimate ? estimate.partial : false
+  };
+};
 var server = http.createServer((req, res) => {
   if (req.headers.authorization !== `Bearer ${token}`) {
     json(res, 401, { error: "unauthorized" });
@@ -501,8 +631,9 @@ var server = http.createServer((req, res) => {
         return;
       }
       const sessionId = typeof body.sessionId === "string" && body.sessionId.trim() ? body.sessionId : null;
-      const changed = applyWatch({ origin, sessionId });
-      json(res, 200, { ok: true, changed, connection, sessionId });
+      const model = typeof body.model === "string" && body.model.trim() ? body.model.trim() : null;
+      const changed = applyWatch({ origin, sessionId, model });
+      json(res, 200, { ok: true, changed, connection, sessionId, model });
     }).catch((error) => {
       json(res, 400, { error: error instanceof Error ? error.message : "Invalid request" });
     });
@@ -524,6 +655,7 @@ var server = http.createServer((req, res) => {
       tokensPerSecond: rate.tokensPerSecond,
       charsPerToken,
       sessionUsage,
+      pricing: describePricing(watch?.model ?? null),
       lastTurn,
       eventsSeen,
       lastEventType,
@@ -534,8 +666,11 @@ var server = http.createServer((req, res) => {
   json(res, 404, { error: "not-found" });
 });
 server.listen(port, "127.0.0.1");
+refreshPricing();
 var shutdown = () => {
   stopStream();
+  if (pricingTimer)
+    clearTimeout(pricingTimer);
   server.close(() => process.exit(0));
 };
 process.on("SIGTERM", shutdown);

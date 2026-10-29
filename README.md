@@ -45,6 +45,10 @@ do not load them.
 tracks the recent peak, the session title, and whether the session is
 `generating`, `idle`, `waiting for permission` or `waiting for answer`.
 
+Switch chats and the meter rewires to the new session. Each session's totals and
+last turn are remembered, so switching back restores them immediately instead of
+waiting for the provider to settle another step.
+
 **Last turn average.** When a turn finishes, its average is shown separately, so
 the live number and the completed result never overwrite each other. The figure
 is tokens divided by *generation* time only — tool calls, retries and time spent

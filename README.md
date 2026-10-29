@@ -22,7 +22,7 @@ choose **Add**. Approve the permissions dialog: it asks for **Run a local
 service**, which is what the meter needs.
 
 ```
-https://github.com/aaxyat/openchamber-tps
+https://github.com/aaxyat/TokenMeter
 ```
 
 A Git install updates itself: bump `version` in `package.json`, rebuild, and

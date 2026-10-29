@@ -1,13 +1,13 @@
 {
-  "name": "openchamber-tps",
-  "version": "1.8.3",
+  "name": "token-meter",
+  "version": "1.8.4",
   "private": true,
   "type": "module",
   "license": "MIT",
   "description": "OpenChamber extension: live generation rate, token totals, cache hit rate and API cost for the open session — in a rail panel and the Session panel.",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/airtaxi/openchamber-tps.git"
+    "url": "git+https://github.com/aaxyat/TokenMeter.git"
   },
   "openchamber": {
     "apiVersion": 1,
@@ -46,5 +46,6 @@
   },
   "devDependencies": {
     "@types/node": "^22.20.3"
-  }
+  },
+  "homepage": "https://github.com/aaxyat/TokenMeter#readme"
 }

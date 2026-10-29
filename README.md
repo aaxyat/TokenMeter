@@ -1,9 +1,9 @@
-# OpenChamber TPS Meter
+# OpenChamber Token Meter
 
 An OpenChamber extension that shows the generation rate of the open session:
 a rolling **last-5-seconds** tokens-per-second readout, plus characters per
 second, the current chars-per-token estimate, and the session's real token
-total.
+totals — input, cached, cache hit rate and output.
 
 The panel is a thin view. A small local service does the measuring.
 
@@ -27,6 +27,9 @@ The panel is a thin view. A small local service does the measuring.
   own usage events) beside the local estimate.
 - Adds a **Current** block below the details: input tokens, cached tokens, the
   input cache hit rate, and output tokens for the watched session.
+- **Reset to 0** under that block zeroes the displayed token counts for the
+  session and counts up from there. The baseline is stored per session, so it
+  survives reopening the panel.
 
 ## How it measures
 

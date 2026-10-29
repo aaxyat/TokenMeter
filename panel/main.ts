@@ -1,5 +1,6 @@
 import { connectHost, HostRequestError } from '@openchamber/sdk';
 import { applyHostReady, mountBadge, mountBanner, mountButton, mountSeparator } from '@openchamber/sdk/ui';
+import { formatCacheHitRate, isTokenTotals, subtractTotals, totalsOf, type SessionUsage, type TokenTotals } from './totals.ts';
 
 type ConnectionState = 'idle' | 'connecting' | 'live' | 'error';
 
@@ -14,18 +15,7 @@ type TurnResult = {
   endedAt: number;
 };
 
-/** Running session totals from `session.usage.updated`; the only real counters OpenCode 2 publishes live. */
-type SessionUsage = {
-  cost: number;
-  input: number;
-  output: number;
-  reasoning: number;
-  cacheRead: number;
-  cacheWrite: number;
-  /** `output + reasoning`: tokens the model actually generated. */
-  generated: number;
-};
-
+/** What the service reports on `GET /rate`. */
 type RateResponse = {
   connection: ConnectionState;
   error: string | null;
@@ -53,7 +43,7 @@ type HostContext = {
 
 const COPY = {
   en: {
-    title: 'TPS Meter',
+    title: 'Token Meter',
     unit: 'tok/s',
     windowLabel: 'rolling 5 s',
     noSession: 'No session is open. Open a chat to measure its generation rate.',
@@ -65,6 +55,7 @@ const COPY = {
     cachedTokens: 'Cached tokens',
     cacheHitRate: 'Input cache hit rate',
     outputTokens: 'Output tokens',
+    reset: 'Reset to 0',
     idle: 'idle',
     generating: 'generating',
     connecting: 'connecting',
@@ -88,7 +79,7 @@ const COPY = {
     active: 'generating',
   },
   ko: {
-    title: 'TPS 측정기',
+    title: '토큰 측정기',
     unit: 'tok/s',
     windowLabel: '최근 5초',
     noSession: '열린 세션이 없습니다. 챗을 열면 생성 속도를 측정합니다.',
@@ -100,6 +91,7 @@ const COPY = {
     cachedTokens: '캐시 토큰',
     cacheHitRate: '입력 캐시 적중률',
     outputTokens: '출력 토큰',
+    reset: '0으로 초기화',
     idle: '대기',
     generating: '생성 중',
     connecting: '연결 중',
@@ -175,10 +167,10 @@ const sessionTokensEl = el('dd', 'tps-detail-value');
 const connectionEl = el('dd', 'tps-detail-value');
 const lastEventEl = el('dd', 'tps-detail-value');
 const eventsEl = el('dd', 'tps-detail-value');
-const inputTokensEl = el('dd', 'tps-detail-value');
-const cachedTokensEl = el('dd', 'tps-detail-value');
-const cacheHitRateEl = el('dd', 'tps-detail-value');
-const outputTokensEl = el('dd', 'tps-detail-value');
+const inputTokensEl = el('div', 'tps-stat-value');
+const cachedTokensEl = el('div', 'tps-stat-value');
+const cacheHitRateEl = el('div', 'tps-stat-value');
+const outputTokensEl = el('div', 'tps-stat-value');
 const lastTurnValueEl = el('div', 'tps-lastturn-value', '—');
 const lastTurnMetaEl = el('div', 'tps-lastturn-meta');
 
@@ -226,12 +218,49 @@ const formatCount = (value: number): string => Math.round(value).toLocaleString(
 
 const formatSeconds = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;
 
-/** Share of the prompt the provider served from its cache. `input` counts uncached prompt tokens only, so the cache reads are added back in. */
-const formatCacheHitRate = (usage: SessionUsage): string => {
-  const prompt = usage.input + usage.cacheRead + usage.cacheWrite;
-  if (prompt <= 0) return '—';
-  const share = Math.min(1, Math.max(0, usage.cacheRead / prompt));
-  return `${(share * 100).toFixed(1)}%`;
+const RESET_KEY_PREFIX = 'reset-totals:';
+/** Totals captured by the Reset button; every token figure is shown relative to it. */
+let baseline: TokenTotals | null = null;
+let baselineSession = '';
+
+/** Token counts since the last reset, or the session totals when nothing was reset. */
+const adjustedUsage = (usage: SessionUsage): SessionUsage => {
+  const adjusted = subtractTotals(usage, baseline);
+  if (adjusted) return adjusted;
+  // The counters restarted: the stored baseline describes a past run.
+  baseline = null;
+  if (baselineSession) void host.storage.delete(`${RESET_KEY_PREFIX}${baselineSession}`).catch(() => undefined);
+  return usage;
+};
+
+const loadBaseline = async (sessionId: string | null): Promise<void> => {
+  if (!sessionId) {
+    baseline = null;
+    baselineSession = '';
+    return;
+  }
+  if (baselineSession === sessionId) return;
+  baselineSession = sessionId;
+  try {
+    const stored = await host.storage.get(`${RESET_KEY_PREFIX}${sessionId}`);
+    baseline = typeof stored === 'string' ? JSON.parse(stored) : null;
+    if (!isTokenTotals(baseline)) baseline = null;
+  } catch {
+    baseline = null;
+  }
+  render(latestRate);
+};
+
+const resetTotals = async (): Promise<void> => {
+  baseline = totalsOf(latestRate?.sessionUsage ?? null);
+  if (baselineSession) {
+    try {
+      await host.storage.set(`${RESET_KEY_PREFIX}${baselineSession}`, JSON.stringify(baseline));
+    } catch {
+      // Storage is a convenience; the reset still applies for this view.
+    }
+  }
+  render(latestRate);
 };
 
 const renderLastTurn = (rate: RateResponse | null): void => {
@@ -268,11 +297,11 @@ const render = (rate: RateResponse | null, notice: string | null = null): void =
 
   charsEl.textContent = rate ? `${rate.charsPerSecond.toFixed(1)}` : '—';
   ratioEl.textContent = rate ? rate.charsPerToken.toFixed(3) : '—';
-  sessionTokensEl.textContent = rate?.sessionUsage ? formatCount(rate.sessionUsage.generated) : '—';
+  const usage = rate?.sessionUsage ? adjustedUsage(rate.sessionUsage) : null;
+  sessionTokensEl.textContent = usage ? formatCount(usage.generated) : '—';
   connectionEl.textContent = rate ? rate.connection : '—';
   lastEventEl.textContent = rate ? formatAge(rate.lastEventAt) : '—';
   eventsEl.textContent = rate ? formatCount(rate.eventsSeen) : '—';
-  const usage = rate?.sessionUsage ?? null;
   inputTokensEl.textContent = usage ? formatCount(usage.input) : '—';
   cachedTokensEl.textContent = usage ? formatCount(usage.cacheRead) : '—';
   cacheHitRateEl.textContent = usage ? formatCacheHitRate(usage) : '—';
@@ -312,6 +341,7 @@ const poll = async (): Promise<void> => {
 };
 
 const configure = async (sessionId: string | null): Promise<void> => {
+  void loadBaseline(sessionId);
   if (!origin) {
     render(null, copy.noOrigin);
     return;
@@ -334,26 +364,48 @@ const configure = async (sessionId: string | null): Promise<void> => {
 const mount = (): void => {
   const container = el('div', 'tps-root');
   noticeRoot = el('div', 'tps-notice');
-  const card = el('section', 'tps-card');
-  const header = el('div', 'tps-header');
-  header.append(el('h1', 'tps-title', copy.title));
-  const badgeSlot = el('div');
-  header.append(badgeSlot);
-
+  const card = el('section', 'tps-card tps-hero');
   const readout = el('div', 'tps-readout');
-  readout.append(valueEl, unitEl);
+  const readoutMain = el('div', 'tps-readout-main');
+  readoutMain.append(valueEl, unitEl);
+  const badgeSlot = el('div', 'tps-readout-badge');
+  readout.append(readoutMain, badgeSlot);
   const windowEl = el('div', 'tps-window', copy.windowLabel);
   const bar = el('div', 'tps-bar');
   bar.append(fillEl);
   const sessionRow = el('div', 'tps-session-row');
   sessionRow.append(sessionEl);
 
-  card.append(header, readout, windowEl, bar, sessionRow);
+  card.append(readout, windowEl, bar, sessionRow);
 
   const lastTurnCard = el('section', 'tps-card tps-lastturn');
-  lastTurnCard.append(el('div', 'tps-lastturn-label', copy.lastTurn), lastTurnValueEl, lastTurnMetaEl);
+  lastTurnCard.append(el('div', 'tps-block-label', copy.lastTurn), lastTurnValueEl, lastTurnMetaEl);
 
-  const details = el('section', 'tps-card');
+  const usageCard = el('section', 'tps-card');
+  usageCard.append(el('div', 'tps-block-label', copy.currentHeading));
+  const stats = el('div', 'tps-stats');
+  const stat = (label: string, value: HTMLElement, emphasis = false) => {
+    const box = el('div', 'tps-stat');
+    if (emphasis) box.dataset.emphasis = 'true';
+    box.append(el('div', 'tps-stat-label', label), value);
+    return box;
+  };
+  stats.append(
+    stat(copy.inputTokens, inputTokensEl),
+    stat(copy.cachedTokens, cachedTokensEl),
+    stat(copy.cacheHitRate, cacheHitRateEl, true),
+    stat(copy.outputTokens, outputTokensEl),
+  );
+  const usageActions = el('div', 'tps-usage-actions');
+  mountButton(usageActions, {
+    label: copy.reset,
+    variant: 'outline',
+    size: 'sm',
+    onClick: () => { void resetTotals(); },
+  });
+  usageCard.append(stats, usageActions);
+
+  const metaCard = el('section', 'tps-card');
   const list = el('dl', 'tps-details');
   const row = (label: string, value: HTMLElement) => {
     list.append(el('dt', 'tps-detail-label', label), value);
@@ -364,29 +416,17 @@ const mount = (): void => {
   row(copy.statusId, connectionEl);
   row(copy.lastEvent, lastEventEl);
   row(copy.events, eventsEl);
-  details.append(list);
+  metaCard.append(list);
+  mountSeparator(metaCard, {});
 
   const footer = el('div', 'tps-footer');
   footer.append(noteEl);
   const actions = el('div', 'tps-actions');
   mountButton(actions, { label: copy.retry, variant: 'outline', size: 'sm', onClick: () => { void configure(context.session?.id ?? null); void poll(); } });
   footer.append(actions);
-  details.append(footer);
-  mountSeparator(details, {});
+  metaCard.append(footer);
 
-  const currentCard = el('section', 'tps-card');
-  const currentLabel = el('div', 'tps-block-label', copy.currentHeading);
-  const currentList = el('dl', 'tps-details');
-  const currentRow = (label: string, value: HTMLElement) => {
-    currentList.append(el('dt', 'tps-detail-label', label), value);
-  };
-  currentRow(copy.inputTokens, inputTokensEl);
-  currentRow(copy.cachedTokens, cachedTokensEl);
-  currentRow(copy.cacheHitRate, cacheHitRateEl);
-  currentRow(copy.outputTokens, outputTokensEl);
-  currentCard.append(currentLabel, currentList);
-
-  container.append(noticeRoot, card, lastTurnCard, details, currentCard);
+  container.append(noticeRoot, card, lastTurnCard, usageCard, metaCard);
   root.append(container);
 
   badge = mountBadge(badgeSlot, { label: copy.connecting, tone: 'neutral' });

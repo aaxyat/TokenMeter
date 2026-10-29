@@ -1,0 +1,71 @@
+/** Token counters the panel shows for the watched session. */
+export type TokenTotals = {
+  input: number;
+  cacheRead: number;
+  cacheWrite: number;
+  output: number;
+  generated: number;
+};
+
+/** Running session totals from `session.usage.updated`, the only real counters OpenCode 2 publishes live. */
+export type SessionUsage = TokenTotals & {
+  cost: number;
+  /** `generated - output`: tokens spent thinking, which the panel does not show. */
+  reasoning: number;
+};
+
+/** A value that came back from host storage, checked before it is trusted as a baseline. */
+export const isTokenTotals = (value: unknown): value is TokenTotals => {
+  if (!value || typeof value !== 'object') return false;
+  const record = value as Record<string, unknown>;
+  return ['input', 'cacheRead', 'cacheWrite', 'output', 'generated'].every((key) => typeof record[key] === 'number');
+};
+
+/**
+ * Share of the prompt the provider served from its cache. `input` counts
+ * uncached prompt tokens only, so the cache reads are added back in.
+ */
+export const formatCacheHitRate = (usage: TokenTotals): string => {
+  const prompt = usage.input + usage.cacheRead + usage.cacheWrite;
+  if (prompt <= 0) return '—';
+  const share = Math.min(1, Math.max(0, usage.cacheRead / prompt));
+  return `${(share * 100).toFixed(1)}%`;
+};
+
+/**
+ * Totals counted from a reset. `null` means the counters went backwards — the
+ * session restarted, or another run took over the id — so the caller drops the
+ * baseline rather than clamping every figure to zero.
+ */
+export const subtractTotals = (usage: SessionUsage, baseline: TokenTotals | null): SessionUsage | null => {
+  if (!baseline) return usage;
+  const regressed = usage.input < baseline.input
+    || usage.cacheRead < baseline.cacheRead
+    || usage.output < baseline.output
+    || usage.generated < baseline.generated;
+  if (regressed) return null;
+  const generated = usage.generated - baseline.generated;
+  const output = usage.output - baseline.output;
+  return {
+    cost: usage.cost,
+    input: usage.input - baseline.input,
+    output,
+    reasoning: Math.max(0, generated - output),
+    cacheRead: usage.cacheRead - baseline.cacheRead,
+    cacheWrite: usage.cacheWrite - baseline.cacheWrite,
+    generated,
+  };
+};
+
+/** What a Reset stores: exactly the figures the panel counts up. */
+export const totalsOf = (usage: SessionUsage | null): TokenTotals => (
+  usage
+    ? {
+      input: usage.input,
+      cacheRead: usage.cacheRead,
+      cacheWrite: usage.cacheWrite,
+      output: usage.output,
+      generated: usage.generated,
+    }
+    : { input: 0, cacheRead: 0, cacheWrite: 0, output: 0, generated: 0 }
+);

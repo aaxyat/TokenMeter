@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TPS Meter</title>
+    <title>Token Meter</title>
     <style>
       html,
       body {
@@ -36,36 +36,36 @@
       .tps-card {
         border: 1px solid var(--oc-border);
         background: var(--oc-muted-surface);
-        border-radius: var(--oc-radius);
-        padding: 14px;
+        border-radius: calc(var(--oc-radius) + 2px);
+        padding: 16px;
         display: flex;
         flex-direction: column;
-        gap: 10px;
-      }
-
-      .tps-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-      }
-
-      .tps-title {
-        margin: 0;
-        font-size: 0.9375rem;
-        font-weight: 600;
+        gap: 12px;
       }
 
       .tps-readout {
         display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .tps-readout-main {
+        display: flex;
         align-items: baseline;
         gap: 6px;
+        min-width: 0;
+      }
+
+      .tps-readout-badge {
+        padding-bottom: 6px;
       }
 
       .tps-value {
-        font-size: 2.75rem;
+        font-size: 3.125rem;
         line-height: 1;
         font-weight: 600;
+        letter-spacing: -0.03em;
         font-variant-numeric: tabular-nums;
       }
 
@@ -81,7 +81,7 @@
       }
 
       .tps-bar {
-        height: 6px;
+        height: 8px;
         border-radius: 999px;
         background: var(--oc-selection);
         overflow: hidden;
@@ -116,7 +116,7 @@
         margin: 0;
         display: grid;
         grid-template-columns: auto 1fr;
-        gap: 4px 12px;
+        gap: 6px 12px;
         font-size: 0.8125rem;
       }
 
@@ -136,18 +136,65 @@
 
       .tps-block-label {
         color: var(--oc-muted);
-        font-size: 0.75rem;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .tps-stats {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .tps-stat {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        padding: 10px 12px;
+        border-radius: calc(var(--oc-radius) - 2px);
+        background: var(--oc-bg);
+      }
+
+      .tps-stat-label {
+        color: var(--oc-muted);
+        font-size: 0.6875rem;
+        line-height: 1.2;
+      }
+
+      .tps-stat-value {
+        font-size: 1.0625rem;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        font-variant-numeric: tabular-nums;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .tps-stat[data-emphasis='true'] .tps-stat-value {
+        color: var(--oc-primary);
+      }
+
+      .tps-usage-actions {
+        display: flex;
+        justify-content: flex-end;
       }
 
       .tps-lastturn-label {
         color: var(--oc-muted);
-        font-size: 0.75rem;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
       }
 
       .tps-lastturn-value {
-        font-size: 1.5rem;
-        line-height: 1.2;
+        font-size: 1.75rem;
+        line-height: 1.15;
         font-weight: 600;
+        letter-spacing: -0.02em;
         font-variant-numeric: tabular-nums;
       }
 
